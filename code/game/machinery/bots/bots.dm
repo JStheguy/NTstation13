@@ -18,8 +18,9 @@
 	var/text_hack = ""		//Custom text returned to a silicon upon hacking a bot.
 	var/text_dehack = "" 	//Text shown when resetting a bots hacked status to normal.
 	var/text_dehack_fail = "" //Shown when a silicon tries to reset a bot emagged with the emag item, which cannot be reset.
+	var/declare_message = "" //What the bot will display to the HUD user.
 	var/frustration = 0 //Used by some bots for tracking failures to reach their target.
-	var/list/call_path = list() //Path calculated by the AI and given to the bot to follow.
+	var/list/call_path //Path calculated by the AI and given to the bot to follow.
 	var/list/path = new() //Every bot has this, so it is best to put it here.
 	var/list/patrol_path = list() //The path a bot has while on patrol.
 	var/list/summon_path = list() //Path bot has while summoned.
@@ -168,7 +169,7 @@
 
 	usr.set_machine(src)
 	add_fingerprint(usr)
-	if((href_list["power"]) && (allowed(usr)))
+	if((href_list["power"]) && (allowed(usr) || !locked))
 		if (on)
 			turn_off()
 		else
@@ -181,7 +182,7 @@
 		if("remote")
 			remote_disabled = !remote_disabled
 		if("hack")
-			if(!emagged)
+			if(emagged != 2)
 				emagged = 2
 				hacked = 1
 				remote_disabled = 0
@@ -279,7 +280,7 @@
 /obj/machinery/bot/proc/hack(mob/user)
 	var/hack
 	if(issilicon(user)) //Allows silicons to toggle the emag status of a bot.
-		hack += "[emagged ? "Software compromised! Unit may exhibit dangerous or erratic behavior." : "Unit operating normally. Release safety lock?"]<BR>"
+		hack += "[emagged == 2 ? "Software compromised! Unit may exhibit dangerous or erratic behavior." : "Unit operating normally. Release safety lock?"]<BR>"
 		hack += "Harm Prevention Safety System: <A href='?src=\ref[src];operation=hack'>[emagged ? "<span class='bad'>DANGER</span>" : "Engaged"]</A><BR>"
 	else if(!locked) //Humans with access can use this option to hide a bot from the AI's remote control panel.
 		hack += "AI remote control network port: <A href='?src=\ref[src];operation=remote'>[remote_disabled ? "Closed" : "Open"]</A><BR><BR>"
@@ -300,14 +301,34 @@
 		O.show_message("<span class='game say'><span class='name'>[src]</span> beeps, \"[message]\"</span>",2)
 	return
 
+/obj/machinery/bot/proc/declare() //Signals a medical or security HUD user to a relevant bot's activity.
+	var/hud_user_list = list() //Determines which userlist to use.
+	switch(bot_type) //Made into a switch so more HUDs can be added easily.
+		if(SEC_BOT) //Securitrons and ED-209
+			hud_user_list = sec_hud_users
+		if(MED_BOT) //Medibots
+			hud_user_list = med_hud_users
+	var/area/myturf = get_turf(src)
+	for(var/mob/huduser in hud_user_list)
+		var/turf/mobturf = get_turf(huduser)
+		if(mobturf.z == myturf.z)
+			huduser.show_message(declare_message,1)
+
+
 /obj/machinery/bot/proc/check_bot_access()
 	if(mode != BOT_SUMMON && mode != BOT_RESPONDING)
 		botcard.access = prev_access
 
-/obj/machinery/bot/proc/set_path() //Contains all the non-unique settings for prepairing a bot to be controlled by the AI.
-	pathset = 1
-	mode = BOT_RESPONDING
-	tries = 0
+/obj/machinery/bot/proc/call_mode() //Handles preparing a bot for a call, as well as calling the move proc.
+	if(!pathset) //Sets the bot to call mode.
+		pathset = 1
+		mode = BOT_RESPONDING
+		tries = 0
+	else //Handles the bot's movement during a call.
+		move_to_call()
+		sleep(5)
+		move_to_call() //Called twice so that the bot moves faster.
+		return
 
 /obj/machinery/bot/proc/move_to_call()
 	if(call_path && call_path.len && tries < 6)
